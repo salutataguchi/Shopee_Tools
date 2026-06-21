@@ -116,6 +116,12 @@ tr.grp-child.hidden{display:none;}
 
 <!-- Customers -->
 <div id="tc" style="display:none;">
+  <div class="toolbar">
+    <button class="tbr-btn green" onclick="custExportCSV()">💾 CSVで保存</button>
+    <input type="file" id="cf" accept=".csv" style="display:none;" onchange="custImportCSV(this)">
+    <button class="tbr-btn blue" onclick="document.getElementById('cf').click()">📂 CSVを読み込む</button>
+    <span style="font-size:12px;color:#aaa;">※ 電話番号・住所はExcel取り込み時に初回のみ保存されます</span>
+  </div>
   <div class="search-row">
     <span style="font-size:14px;">🔍</span>
     <input type="text" id="cust-search" placeholder="アカウント名・住所で検索..." oninput="custTbl()">
@@ -166,7 +172,9 @@ tr.grp-child.hidden{display:none;}
 const LS_KEY='shopee_sales_v1';
 const LS_MASTER='shopee_master_v1';
 const LS_MKT='shopee_mkt_v1';
+const LS_CUSTOMERS='shopee_customers_v1';
 let master={};
+let customers={};
 
 // 市場設定
 const DEFAULT_MKT={
@@ -240,6 +248,25 @@ function mktReset(code){
 
 function saveMaster(){try{localStorage.setItem(LS_MASTER,JSON.stringify(master));}catch(e){}}
 function loadMaster(){try{const d=localStorage.getItem(LS_MASTER);if(d){master=JSON.parse(d);return true;}}catch(e){}return false;}
+
+// 顧客マスタ
+function saveCustomers(){try{localStorage.setItem(LS_CUSTOMERS,JSON.stringify(customers));}catch(e){}}
+function loadCustomers(){try{const d=localStorage.getItem(LS_CUSTOMERS);if(d){customers=JSON.parse(d);return true;}}catch(e){}return false;}
+function isMasked(val){return !val||String(val).includes('*');}
+function registerCustomerIfNew(account,phone,address,recipientName,country){
+  if(!account)return;
+  if(customers[account])return; // 登録済みはスキップ（上書きしない）
+  if(isMasked(phone)&&isMasked(address))return; // 両方マスク済みなら登録しない
+  customers[account]={
+    account,
+    recipientName:recipientName||'',
+    phone:isMasked(phone)?'':phone,
+    address:isMasked(address)?'':address,
+    country:country||'',
+    registeredAt:new Date().toISOString().substring(0,10)
+  };
+  saveCustomers();
+}
 
 function applyMasterToOrds(){
   ords.forEach(o=>{
@@ -397,9 +424,57 @@ function importJSON(input){
   };
   reader.readAsText(file);input.value='';
 }
+function custExportCSV(){
+  const header=['アカウント名','受取人名','電話番号','住所','国','初回登録日'];
+  const rows=Object.values(customers).map(c=>[c.account,c.recipientName||'',c.phone||'',c.address||'',c.country||'',c.registeredAt||'']);
+  const csv=[header,...rows].map(r=>r.map(v=>'\"'+String(v).replace(/"/g,'""')+'\"').join(',')).join('\n');
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download='customers_'+new Date().toISOString().substring(0,10)+'.csv';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+}
+function custImportCSV(input){
+  const file=input.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const lines=e.target.result.replace(/\r/g,'').split('\n').filter(Boolean);
+      let added=0,skipped=0;
+      lines.slice(1).forEach(line=>{
+        // CSVパース（ダブルクォート対応）
+        const cols=[];
+        let cur='',inQ=false;
+        for(let i=0;i<line.length;i++){
+          const ch=line[i];
+          if(ch==='"'){if(inQ&&line[i+1]==='"'){cur+='"';i++;}else{inQ=!inQ;}}
+          else if(ch===','&&!inQ){cols.push(cur);cur='';}
+          else cur+=ch;
+        }
+        cols.push(cur);
+        const account=(cols[0]||'').trim();
+        if(!account)return;
+        if(customers[account]){skipped++;return;} // 既存はスキップ
+        customers[account]={
+          account,
+          recipientName:(cols[1]||'').trim(),
+          phone:(cols[2]||'').trim(),
+          address:(cols[3]||'').trim(),
+          country:(cols[4]||'').trim(),
+          registeredAt:(cols[5]||'').trim()||new Date().toISOString().substring(0,10),
+        };
+        added++;
+      });
+      saveCustomers();custTbl();
+      alert(`顧客データを読み込みました\n新規追加: ${added}件　スキップ（既存）: ${skipped}件`);
+    }catch(err){alert('読み込みエラー: '+err.message);}
+  };
+  reader.readAsText(file,'UTF-8');input.value='';
+}
 function clearData(){
   if(!confirm("⚠️ 全データ（注文履歴・顧客情報）がすべて消えます。サンプルデータに戻ります。本当によろしいですか？"))return;
   localStorage.removeItem(LS_KEY);
+  localStorage.removeItem(LS_CUSTOMERS);
+  customers={};
   ords=SD.map(o=>({...o,profit:0,pr:0}));ords.forEach(cp);
   setStatus("サンプルデータに戻しました");updateMonthSelect();otbl();dash();
 }
@@ -647,28 +722,46 @@ function custTbl(){
   const st=(document.getElementById('cust-search')?.value||'').toLowerCase();
   const sym=getCurSym();
   const filtered=gf(); // 月・国フィルター適用
+  // 注文データから集計
   const map={};
   filtered.forEach(o=>{
     const k=o.account||'(不明)';
-    if(!map[k])map[k]={account:o.account,phone:o.phone||'-',address:o.address||'-',country:o.country,cnt:0,total:0,profit:0};
+    if(!map[k])map[k]={account:o.account,country:o.country,cnt:0,total:0,profit:0};
     map[k].cnt++;map[k].total+=(o.receipt||0);map[k].profit+=o.profit;
   });
-  let custs=Object.values(map).sort((a,b)=>b.cnt-a.cnt);
-  if(st)custs=custs.filter(c=>(c.account||'').toLowerCase().includes(st)||(c.address||'').toLowerCase().includes(st));
+  // 顧客マスタから電話・住所・受取人名をマージ
+  let custs=Object.values(map).map(c=>{
+    const cm=customers[c.account]||{};
+    return{
+      ...c,
+      recipientName:cm.recipientName||'',
+      phone:cm.phone||'',
+      address:cm.address||'',
+      registeredAt:cm.registeredAt||'',
+    };
+  }).sort((a,b)=>b.cnt-a.cnt);
+  if(st)custs=custs.filter(c=>(c.account||'').toLowerCase().includes(st)||(c.address||'').toLowerCase().includes(st)||(c.phone||'').toLowerCase().includes(st)||(c.recipientName||'').toLowerCase().includes(st));
   const cnt=document.getElementById('cust-count');
   if(cnt)cnt.textContent=st?`${custs.length}/${Object.keys(map).length}件`:`${Object.keys(map).length}件`;
   const rows=custs.map((c,i)=>{
     const rep=c.cnt>=2?'<span class="badge bok" style="margin-left:4px;">リピーター</span>':'';
+    const hasContact=c.phone||c.address;
+    const phoneTd=c.phone?`<td style="font-size:11px;">${c.phone}</td>`:`<td style="font-size:11px;color:#ccc;">未取得</td>`;
+    const addrTd=c.address?`<td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="${c.address}">${c.address}</td>`:`<td style="font-size:11px;color:#ccc;">未取得</td>`;
     return`<tr>
       <td style="color:#999">${i+1}</td>
       <td>${c.account}</td>
+      <td style="font-size:11px;color:#888;">${c.recipientName||'-'}</td>
       <td>${c.country}</td>
       <td style="font-weight:500;">${c.cnt}件${rep}</td>
       <td>${sym}${Math.round(c.total).toLocaleString()}</td>
       <td>¥${Math.round(c.profit).toLocaleString()}</td>
+      ${phoneTd}
+      ${addrTd}
+      <td style="font-size:10px;color:#bbb;">${c.registeredAt||''}</td>
     </tr>`;
   }).join('');
-  document.getElementById('ctbl').innerHTML=`<thead><tr><th>#</th><th>アカウント名</th><th>国</th><th>注文回数</th><th>合計購入額(${sym})</th><th>利益合計(¥)</th></tr></thead><tbody>${rows}</tbody>`;
+  document.getElementById('ctbl').innerHTML=`<thead><tr><th>#</th><th>アカウント名</th><th>受取人名</th><th>国</th><th>注文回数</th><th>合計購入額(${sym})</th><th>利益合計(¥)</th><th>電話番号</th><th>住所</th><th>初回登録日</th></tr></thead><tbody>${rows||'<tr><td colspan="10" style="text-align:center;color:#aaa;padding:20px;">データがありません</td></tr>'}</tbody>`;
 }
 
 // Excel upload
@@ -685,10 +778,19 @@ function uploadXlsx(input){
       const existingMap={};
       ords.forEach((o,i)=>{if(o.orderId)existingMap[o.orderId]=i;});
 
-      let added=0,updated=0;
+      let added=0,updated=0,custAdded=0;
       data.forEach(row=>{
         const id=row['หมายเลขคำสั่งซื้อ']||'';
         const newReceipt=parseFloat(row['รายได้โดยประมาณ']||row['Estimated Order Income']||0)||0;
+        const account=row['ชื่อผู้ใช้ (ผู้ซื้อ)']||'';
+        const phone=row['หมายเลขโทรศัพท์']||'';
+        const address=row['ที่อยู่ในการจัดส่ง']||'';
+        const recipientName=row['ชื่อผู้รับ']||'';
+        const country=row['ประเทศ']||'TH';
+        // 顧客情報を初回のみ保存（マスク前のデータを保持）
+        const beforeCount=Object.keys(customers).length;
+        registerCustomerIfNew(account,phone,address,recipientName,country);
+        if(Object.keys(customers).length>beforeCount)custAdded++;
         const baseRow={
           orderId:id,
           date:(row['วันที่ทำการสั่งซื้อ']||'').substring(0,10),
@@ -698,7 +800,10 @@ function uploadXlsx(input){
           variation:row['ชื่อตัวเลือก']||'',
           price:parseFloat(row['ราคาขาย'])||0,
           qty:parseInt(row['จำนวน'])||0,
-          country:row['ประเทศ']||'TH',
+          country,
+          account,
+          phone,
+          address,
         };
         if(id && id in existingMap){
           // 既存データは手入力値を保持しつつ注文情報・実入金額を上書き
@@ -714,7 +819,8 @@ function uploadXlsx(input){
       });
 
       ords.forEach(cp);applyMasterToOrds();saveLS();
-      const msg=`${added}件追加・${updated}件更新しました ✅`;
+      const custMsg=custAdded>0?`・顧客${custAdded}件登録`:'';
+      const msg=`${added}件追加・${updated}件更新しました${custMsg} ✅`;
       setStatus(msg);updateMonthSelect();otbl();dash();
     }catch(err){setStatus('エラー: '+err.message);}
   };
@@ -826,6 +932,7 @@ function updateMonthSelect(){
 // Init
 loadMaster();
 loadMkt();
+loadCustomers();
 // 初期表示：タイ設定を反映
 document.getElementById('ri').value=mktCfg['TH'].rate;
 document.getElementById('rate-label').textContent='1฿ =';
