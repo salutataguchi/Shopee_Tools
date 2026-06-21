@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shopee 出品価格算出ツール</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Helvetica Neue',sans-serif;background:#f0ede8;color:#1a1a1a;min-height:100vh;padding:24px 16px;}
+h1{font-size:17px;font-weight:600;margin-bottom:4px;}
+.sub{font-size:12px;color:#888;margin-bottom:16px;}
+.nav{display:flex;gap:6px;margin-bottom:20px;}
+.nav-btn{font-size:13px;padding:8px 16px;border-radius:8px;border:1px solid #ddd;background:#fff;cursor:pointer;color:#666;}
+.nav-btn.on{background:#1a1a1a;color:#fff;border-color:#1a1a1a;}
+.page{display:none;}
+.page.on{display:block;}
+.card{background:#fff;border-radius:12px;padding:20px;border:1px solid #e4e0da;margin-bottom:14px;}
+.card-title{font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#999;margin-bottom:14px;}
+.market-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;}
+.mtab{font-size:12px;padding:6px 12px;border-radius:20px;border:1px solid #ddd;background:#fff;cursor:pointer;color:#666;}
+.mtab.on{background:#1a1a1a;color:#fff;border-color:#1a1a1a;}
+.rate-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:#f7f5f2;border-radius:8px;margin-bottom:14px;font-size:12px;color:#666;}
+.refresh-btn{margin-left:auto;cursor:pointer;font-size:11px;color:#999;border:1px solid #e0ddd8;background:#fff;padding:4px 8px;border-radius:4px;}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+.field{display:flex;flex-direction:column;gap:4px;}
+.field label{font-size:11px;color:#888;}
+.inp-wrap{position:relative;}
+.inp-wrap input{width:100%;font-size:14px;padding:8px 36px 8px 10px;border:1px solid #e0ddd8;border-radius:8px;background:#faf9f7;outline:none;}
+.inp-wrap input:focus{border-color:#1a1a1a;background:#fff;}
+.inp-wrap .unit{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:11px;color:#aaa;pointer-events:none;}
+.sep{height:1px;background:#f0ede8;margin:14px 0;}
+.result-box{background:#1a1a1a;border-radius:12px;padding:20px;color:#fff;margin-bottom:14px;}
+.result-main{font-size:32px;font-weight:700;margin-bottom:2px;}
+.result-thb{font-size:16px;color:#aaa;margin-bottom:4px;}
+.result-sub{font-size:12px;color:#888;margin-bottom:16px;}
+.result-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;}
+.result-item{background:#2a2a2a;border-radius:8px;padding:10px 12px;}
+.rl{font-size:10px;color:#666;margin-bottom:2px;}
+.rv{font-size:14px;font-weight:500;color:#fff;}
+.rv.ok{color:#4ade80;}
+.rv.warn{color:#fbbf24;}
+.rv.ng{color:#f87171;}
+.breakdown{background:#2a2a2a;border-radius:8px;padding:12px;font-size:12px;}
+.breakdown-title{font-size:10px;color:#666;margin-bottom:8px;letter-spacing:0.06em;text-transform:uppercase;}
+.bd-row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #333;color:#ccc;}
+.bd-row:last-child{border-bottom:none;color:#fff;font-weight:600;}
+.bd-row .neg{color:#f87171;}
+.bd-row .pos{color:#4ade80;}
+.hint{font-size:11px;color:#aaa;margin-top:10px;line-height:1.6;}
+.settings-table{width:100%;border-collapse:collapse;font-size:13px;}
+.settings-table th{text-align:left;font-size:11px;color:#999;font-weight:600;padding:8px 6px;border-bottom:1px solid #f0ede8;}
+.settings-table td{padding:10px 6px;border-bottom:1px solid #f7f5f2;vertical-align:middle;}
+.settings-table td:first-child{font-weight:500;white-space:nowrap;}
+.settings-table .inp-wrap input{width:80px;}
+.save-btn{display:block;width:100%;margin-top:14px;padding:12px;font-size:14px;font-weight:600;background:#1a1a1a;color:#fff;border:none;border-radius:10px;cursor:pointer;}
+.save-btn:hover{background:#333;}
+.save-ok{font-size:12px;color:#4ade80;text-align:center;margin-top:8px;height:16px;}
+@media(max-width:480px){.grid2,.grid3,.result-grid{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<h1>📊 Shopee 出品価格算出ツール</h1>
+<p class="sub">saluta.th 用 — 仕入れ原価から適正出品価格を算出</p>
+
+<div class="nav">
+  <button class="nav-btn on" onclick="showPage('calc')">🧮 計算</button>
+  <button class="nav-btn" onclick="showPage('settings')">⚙️ 手数料設定</button>
+</div>
+
+<!-- 計算ページ -->
+<div id="page-calc" class="page on">
+
+  <div class="card">
+    <div class="card-title">市場を選択</div>
+    <div class="market-tabs" id="market-tabs"></div>
+    <div class="rate-bar">
+      <span>為替レート: 1฿ = <strong id="rate-display">-</strong></span>
+      <button class="refresh-btn" onclick="fetchRate()">🔄 更新</button>
+    </div>
+    <div class="field">
+      <label>為替レート（手動修正可）</label>
+      <div class="inp-wrap">
+        <input type="number" inputmode="decimal" lang="en" id="rate-input" step="0.001" min="0.001" value="4.883">
+        <span class="unit" id="rate-unit">¥/฿</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">コスト入力（円）</div>
+    <div class="grid2" style="margin-bottom:10px;">
+      <div class="field"><label>仕入れ価格（¥）</label><div class="inp-wrap"><input type="number" inputmode="decimal" lang="en" id="cost" min="0"><span class="unit">¥</span></div></div>
+      <div class="field"><label>固定費（¥）</label><div class="inp-wrap"><input type="number" inputmode="decimal" lang="en" id="fixed-cost" min="0"><span class="unit">¥</span></div></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label id="ship-label">国際送料（฿）</label><div class="inp-wrap"><input type="number" inputmode="decimal" lang="en" id="intl-ship" min="0"><span class="unit" id="ship-unit">฿</span></div></div>
+      <div class="field"><label>その他費用（¥）</label><div class="inp-wrap"><input type="number" inputmode="decimal" lang="en" id="other-cost" min="0"><span class="unit">¥</span></div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">割引・手数料</div>
+    <div class="grid3" style="margin-bottom:10px;">
+      <div class="field"><label>ディスカウント（%）</label><div class="inp-wrap"><input type="number" inputmode="decimal" lang="en" id="discount" value="0" step="1" min="0" max="90"><span class="unit">%</span></div></div>
+      <div class="field"><label>バウチャー（%）</label><div class="inp-wrap"><input type="number" inputmode="decimal" lang="en" id="voucher" value="0" step="1" min="0" max="90"><span class="unit">%</span></div></div>
+      
+    </div>
+    <div class="grid2" style="margin-bottom:10px;">
+      <div class="field"><label>販売手数料（%）</label><div class="inp-wrap"><input type="number" inputmode="decimal" lang="en" id="commission" step="0.01" min="0" max="30"><span class="unit">%</span></div></div>
+      <div class="field"><label>決済手数料（%）</label><div class="inp-wrap"><input type="number" inputmode="decimal" lang="en" id="payment-fee" step="0.01" min="0" max="30"><span class="unit">%</span></div></div>
+    </div>
+    <div class="sep"></div>
+    <div class="grid3">
+      <div class="field"><label>為替バッファ（%）</label><div class="inp-wrap"><input type="number" inputmode="decimal" lang="en" id="fx-buffer" value="0" step="0.5" min="0" max="20"><span class="unit">%</span></div></div>
+      <div class="field"><label>目標利益率（%）</label><div class="inp-wrap"><input type="number" inputmode="decimal" lang="en" id="margin" value="5" step="1" min="0" max="90"><span class="unit">%</span></div></div>
+      <div class="field"><label>最低利益（¥）</label><div class="inp-wrap"><input type="number" inputmode="decimal" lang="en" id="min-profit" value="100" step="10" min="0"><span class="unit">¥</span></div></div>
+    </div>
+  </div>
+
+  <div class="result-box">
+    <div style="font-size:11px;color:#666;margin-bottom:4px;">推奨出品価格</div>
+    <div class="result-main" id="result-jpy">—</div>
+    <div class="result-thb" id="result-thb">—</div>
+    <div class="result-sub" id="result-note">コストを入力してください</div>
+    <div class="result-grid">
+      <div class="result-item"><div class="rl">出品価格（現地）</div><div class="rv" id="r-listing-local">—</div></div>
+      <div class="result-item"><div class="rl">ディスカウント後（現地）</div><div class="rv" id="r-after-discount">—</div></div>
+      <div class="result-item"><div class="rl">総コスト（¥）</div><div class="rv" id="r-cost">—</div></div>
+      <div class="result-item"><div class="rl">予想利益（¥）</div><div class="rv" id="r-profit">—</div></div>
+      <div class="result-item"><div class="rl">実質利益率</div><div class="rv" id="r-margin">—</div></div>
+      <div class="result-item"><div class="rl">損益分岐（現地）</div><div class="rv" id="r-break">—</div></div>
+    </div>
+    <div class="breakdown">
+      <div class="breakdown-title">計算内訳</div>
+      <div class="bd-row"><span>販売価格</span><span id="bd-price">—</span></div>
+      <div class="bd-row"><span>仕入れ価格</span><span class="neg" id="bd-cost">—</span></div>
+      <div class="bd-row"><span>固定費</span><span class="neg" id="bd-fixed">—</span></div>
+      <div class="bd-row"><span>国際送料</span><span class="neg" id="bd-ship">—</span></div>
+      <div class="bd-row"><span id="bd-discount-label">ディスカウント</span><span class="neg" id="bd-discount">—</span></div>
+      <div class="bd-row"><span id="bd-voucher-label">バウチャー</span><span class="neg" id="bd-voucher">—</span></div>
+      <div class="bd-row"><span id="bd-fee-label">手数料</span><span class="neg" id="bd-fee">—</span></div>
+      <div class="bd-row"><span>= 実際の利益</span><span id="bd-profit">—</span></div>
+    </div>
+    <div class="hint" id="result-hint"></div>
+  </div>
+</div>
+
+<!-- 設定ページ -->
+<div id="page-settings" class="page">
+  <div class="card">
+    <div class="card-title">国別 手数料設定</div>
+    <table class="settings-table">
+      <thead><tr><th>市場</th><th>販売手数料 %</th><th>決済手数料 %</th></tr></thead>
+      <tbody id="settings-tbody"></tbody>
+    </table>
+    <button class="save-btn" onclick="saveSettings()">💾 保存する</button>
+    <div class="save-ok" id="save-ok"></div>
+  </div>
+  <div class="card" style="font-size:12px;color:#888;line-height:1.8;">
+    <div class="card-title">メモ</div>
+    タイ(TH) 販売手数料: 3.21% / 決済手数料: 16.85%<br>
+    ※ 設定はブラウザに保存されます
+  </div>
+</div>
+
+<script>
+var MARKETS = [
+  {code:'TH', name:'タイ',         sym:'฿',   defRate:4.90,  defC:3.21,  defP:16.85},
+  {code:'PH', name:'フィリピン',   sym:'₱',   defRate:2.55,   defC:3.0,   defP:2.0},
+  {code:'MY', name:'マレーシア',   sym:'RM',  defRate:33.0,   defC:3.0,   defP:2.0},
+  {code:'SG', name:'シンガポール', sym:'S$',  defRate:124.89, defC:3.0,   defP:2.0},
+  {code:'TW', name:'台湾',         sym:'NT$', defRate:4.6,    defC:3.0,   defP:2.0},
+  {code:'VN', name:'ベトナム',     sym:'₫',   defRate:0.0055, defC:3.0,   defP:2.0}
+];
+var CURRENCY_MAP = {TH:'THB',PH:'PHP',MY:'MYR',SG:'SGD',TW:'TWD',VN:'VND'};
+var LS_KEY = 'shopee_calc_fees_v1';
+var currentMarket = MARKETS[0];
+var fees = {};
+
+function loadFees(){
+  try{ var d=localStorage.getItem(LS_KEY); if(d) fees=JSON.parse(d); }catch(e){}
+  for(var i=0;i<MARKETS.length;i++){
+    var m=MARKETS[i];
+    if(!fees[m.code]) fees[m.code]={c:m.defC,p:m.defP};
+  }
+}
+function saveFees(){ try{ localStorage.setItem(LS_KEY,JSON.stringify(fees)); }catch(e){} }
+
+function showPage(name){
+  document.getElementById('page-calc').className    = 'page'+(name==='calc'?' on':'');
+  document.getElementById('page-settings').className = 'page'+(name==='settings'?' on':'');
+  var btns = document.querySelectorAll('.nav-btn');
+  btns[0].className = 'nav-btn'+(name==='calc'?' on':'');
+  btns[1].className = 'nav-btn'+(name==='settings'?' on':'');
+  if(name==='settings') buildSettingsTable();
+}
+
+function buildSettingsTable(){
+  var html='';
+  for(var i=0;i<MARKETS.length;i++){
+    var m=MARKETS[i], f=fees[m.code]||{c:m.defC,p:m.defP};
+    html+='<tr><td>'+m.sym+' '+m.name+'</td>'
+      +'<td><div class="inp-wrap"><input type="number" inputmode="decimal" lang="en" id="sc-'+m.code+'" value="'+f.c+'" step="0.01" min="0" max="30"><span class="unit">%</span></div></td>'
+      +'<td><div class="inp-wrap"><input type="number" inputmode="decimal" lang="en" id="sp-'+m.code+'" value="'+f.p+'" step="0.01" min="0" max="30"><span class="unit">%</span></div></td>'
+      +'</tr>';
+  }
+  document.getElementById('settings-tbody').innerHTML=html;
+}
+
+function saveSettings(){
+  for(var i=0;i<MARKETS.length;i++){
+    var code=MARKETS[i].code;
+    fees[code]={
+      c:parseFloat(document.getElementById('sc-'+code).value)||0,
+      p:parseFloat(document.getElementById('sp-'+code).value)||0
+    };
+  }
+  saveFees();
+  document.getElementById('commission').value   = fees[currentMarket.code].c;
+  document.getElementById('payment-fee').value  = fees[currentMarket.code].p;
+  calc();
+  var ok=document.getElementById('save-ok');
+  ok.textContent='✅ 保存しました';
+  setTimeout(function(){ ok.textContent=''; },2000);
+}
+
+function buildTabs(){
+  var html='';
+  for(var i=0;i<MARKETS.length;i++){
+    var m=MARKETS[i];
+    html+='<button class="mtab'+(m.code===currentMarket.code?' on':'')+'" onclick="selectMarket(\''+m.code+'\')">'+m.name+'</button>';
+  }
+  document.getElementById('market-tabs').innerHTML=html;
+}
+
+function selectMarket(code){
+  for(var i=0;i<MARKETS.length;i++){ if(MARKETS[i].code===code){currentMarket=MARKETS[i];break;} }
+  buildTabs();
+  var f=fees[code]||{c:currentMarket.defC,p:currentMarket.defP};
+  document.getElementById('commission').value  = f.c;
+  document.getElementById('payment-fee').value = f.p;
+  document.getElementById('rate-input').value  = currentMarket.defRate;
+  document.getElementById('rate-unit').textContent = '¥/'+currentMarket.sym;
+  document.getElementById('rate-display').textContent = currentMarket.defRate+currentMarket.sym+'（参考値）';
+  document.getElementById('ship-label').textContent = '国際送料（'+currentMarket.sym+'）';
+  document.getElementById('ship-unit').textContent = currentMarket.sym;
+  document.getElementById('intl-ship').value = '';
+  calc();
+  fetchRate();
+}
+
+function fetchRate(){
+  var code=currentMarket.code, sym=currentMarket.sym;
+  fetch('https://api.frankfurter.app/latest?from=JPY&to='+CURRENCY_MAP[code])
+    .then(function(r){return r.json();})
+    .then(function(d){
+      var rate=d.rates[CURRENCY_MAP[code]];
+      if(rate&&rate>0){
+        document.getElementById('rate-input').value=rate.toFixed(4);
+        document.getElementById('rate-display').textContent=rate.toFixed(4)+sym;
+        calc();
+      }
+    }).catch(function(){});
+}
+
+function g(id){ return parseFloat(document.getElementById(id).value)||0; }
+function fj(n){ return '¥'+Math.round(n).toLocaleString(); }
+
+function calc(){
+  var rate       = g('rate-input');
+  var cost       = g('cost');
+  var fixedCost  = g('fixed-cost');
+  var intlShipLocal = g('intl-ship'); // 現地通貨入力
+  var intlShip = rate > 0 ? intlShipLocal / rate : 0; // 円換算
+  var otherCost  = g('other-cost');
+  var discount   = g('discount')/100;
+  var voucher    = g('voucher')/100;
+  
+  var commission = g('commission')/100;
+  var payFee     = g('payment-fee')/100;
+  var fxBuf      = g('fx-buffer')/100;
+  var margin     = g('margin')/100;
+  var minProfit  = g('min-profit');
+  var sym        = currentMarket.sym;
+
+  if(!rate || !cost){
+    document.getElementById('result-jpy').textContent='コストを入力してください';
+    document.getElementById('result-thb').textContent='';
+    document.getElementById('result-note').textContent='';
+    ['r-listing-local','r-after-discount','r-cost','r-profit','r-margin','r-break','bd-price','bd-cost','bd-fixed','bd-ship','bd-discount','bd-voucher','bd-fee','bd-profit'].forEach(function(id){
+      var el=document.getElementById(id); if(el){el.textContent='—';el.className=el.className.replace(/ ?(ok|warn|ng)/g,'');}
+    });
+    document.getElementById('result-hint').textContent='';
+    return;
+  }
+
+  // 全コストをバーツ換算して計算（専用ツールに合わせる）
+  // ¥→฿換算（rate = 1¥あたりの฿数）
+  var costLocal      = cost / rate;
+  var fixedLocal     = fixedCost / rate;
+  var shipLocal      = intlShipLocal;
+  var otherLocal     = otherCost / rate;
+  var totalCostLocal = costLocal + fixedLocal + shipLocal + otherLocal;
+  var totalCostJpy   = cost + fixedCost + (intlShipLocal * rate) + otherCost;
+
+  var totalFeeRate = commission + payFee;
+
+  // 必要利益(฿)
+  var profitByRate   = totalCostLocal * margin;
+  var minProfitLocal = minProfit / rate;
+  var requiredProfit = Math.max(profitByRate, minProfitLocal);
+
+  // 出品価格(฿)
+  var requiredRevenue = totalCostLocal + requiredProfit;
+  var denominator = (1-discount) * (1-voucher) * (1-totalFeeRate);
+  if(denominator <= 0){
+    document.getElementById("result-jpy").textContent="計算できません";
+    return;
+  }
+
+  var listingPriceLocal = requiredRevenue / denominator;
+  var listingPriceJpy   = listingPriceLocal * rate;
+
+  // 内訳(฿)
+  var revenueAfterDiscount = listingPriceLocal * (1-discount);
+  var revenueAfterVoucher  = revenueAfterDiscount * (1-voucher);
+  var feeAmt               = revenueAfterVoucher * totalFeeRate;
+  var actualRevenue        = revenueAfterVoucher * (1-totalFeeRate);
+  var profitLocal          = actualRevenue - totalCostLocal;
+  var profitJpy            = profitLocal * rate;
+  var actualMargin         = totalCostLocal > 0 ? profitLocal / totalCostLocal * 100 : 0;
+  var breakEvenLocal       = totalCostLocal / denominator;
+
+  // 表示
+  document.getElementById('result-jpy').textContent  = fj(listingPriceJpy);
+  document.getElementById('result-thb').textContent  = sym + Math.ceil(listingPriceLocal).toLocaleString();
+  document.getElementById('result-note').textContent = '為替レート: 1'+sym+' = ¥'+rate;
+  document.getElementById('r-listing-local').textContent = sym + Math.ceil(listingPriceLocal).toLocaleString();
+  document.getElementById('r-after-discount').textContent = sym + Math.ceil(listingPriceLocal * (1-discount)).toLocaleString();
+  document.getElementById('r-cost').textContent      = fj(totalCostJpy);
+  document.getElementById('r-break').textContent     = sym + Math.ceil(breakEvenLocal).toLocaleString();
+
+  var profitEl = document.getElementById('r-profit');
+  profitEl.textContent = fj(profitJpy);
+  profitEl.className   = 'rv '+(profitJpy>0?'ok':'ng');
+
+  var marginEl = document.getElementById('r-margin');
+  marginEl.textContent = actualMargin.toFixed(2)+'%';
+  marginEl.className   = 'rv '+(actualMargin>=20?'ok':actualMargin>=0?'warn':'ng');
+
+  // 内訳（専用ツールと同じ円建て表示）
+  document.getElementById("bd-price").textContent    = fj(listingPriceJpy)+" ("+sym+Math.ceil(listingPriceLocal)+")";
+  document.getElementById("bd-cost").textContent     = "-"+fj(cost)+" (-"+sym+Math.ceil(costLocal)+")";
+  document.getElementById("bd-fixed").textContent    = fixedCost>0 ? "-"+fj(fixedCost)+" (-"+sym+Math.ceil(fixedLocal)+")" : "—";
+  document.getElementById("bd-ship").textContent     = shipLocal>0 ? "-"+sym+shipLocal+" (-"+fj(shipLocal*rate)+")" : "—";
+
+  var discAmtLocal = listingPriceLocal * discount;
+  document.getElementById("bd-discount-label").textContent = "ディスカウント ("+(discount*100).toFixed(0)+"%)";
+  document.getElementById("bd-discount").textContent = discAmtLocal>0 ? "-"+fj(discAmtLocal*rate)+" (-"+sym+Math.ceil(discAmtLocal)+")" : "—";
+
+  var voucherAmtLocal = revenueAfterDiscount * voucher;
+  document.getElementById("bd-voucher-label").textContent = "バウチャー ("+(voucher*100).toFixed(0)+"%)";
+  document.getElementById("bd-voucher").textContent = voucherAmtLocal>0 ? "-"+fj(voucherAmtLocal*rate)+" (-"+sym+Math.ceil(voucherAmtLocal)+")" : "—";
+
+  document.getElementById("bd-fee-label").textContent = "手数料 ("+(totalFeeRate*100).toFixed(2)+"%)";
+  document.getElementById("bd-fee").textContent = "-"+fj(feeAmt*rate)+" (-"+sym+Math.ceil(feeAmt)+")";
+
+  var profitBd = document.getElementById("bd-profit");
+  profitBd.textContent = fj(profitJpy)+" ("+sym+Math.ceil(profitLocal)+")";
+  profitBd.className   = profitJpy>=0?"pos":"neg";
+
+  var hint='';
+  if(actualMargin<0)        hint='⚠️ この価格では赤字になります。';
+  else if(actualMargin<10)  hint='⚠️ 利益率が低めです。';
+  else if(actualMargin>=20) hint='✅ 健全な利益率です。';
+  document.getElementById('result-hint').textContent=hint;
+}
+
+// 入力値の保存・復元
+var LS_INPUTS = "shopee_calc_inputs_v1";
+var INPUT_IDS = ["cost","fixed-cost","intl-ship","other-cost","discount","voucher","fx-buffer","margin","min-profit"];
+
+function saveInputs(){
+  var data = {};
+  INPUT_IDS.forEach(function(id){
+    var el = document.getElementById(id);
+    if(el) data[id] = el.value;
+  });
+  try{ localStorage.setItem(LS_INPUTS, JSON.stringify(data)); }catch(e){}
+}
+
+function loadInputs(){
+  try{
+    var d = localStorage.getItem(LS_INPUTS);
+    if(!d) return;
+    var data = JSON.parse(d);
+    INPUT_IDS.forEach(function(id){
+      var el = document.getElementById(id);
+      if(el && data[id] !== undefined) el.value = data[id];
+    });
+  }catch(e){}
+}
+
+document.addEventListener("DOMContentLoaded", function(){
+  loadFees();
+  buildTabs();
+  loadInputs();
+  var f=fees[currentMarket.code];
+  document.getElementById("commission").value  = f.c;
+  document.getElementById("payment-fee").value = f.p;
+  document.getElementById("rate-display").textContent = currentMarket.defRate+currentMarket.sym+"（参考値）";
+  document.querySelectorAll("input[type=number]").forEach(function(el){
+    el.addEventListener("compositionstart", function(e){ this.blur(); this.focus(); });
+    el.addEventListener("keydown", function(e){ if(e.isComposing) e.preventDefault(); });
+    el.addEventListener("input", function(){ saveInputs(); calc(); });
+  });
+  calc();
+  fetchRate();
+});
+</script>
+</body>
+</html>
